@@ -40,6 +40,10 @@ public struct CompSourceInfo: Codable, Equatable, Sendable {
 public struct CompJob: Identifiable, Codable, Equatable, Sendable {
     public enum State: Codable, Equatable, Sendable {
         case waiting
+        /// Captions on: turning speech into words.
+        case transcribing
+        /// Captions ready for a look before encoding.
+        case needsReview
         case encoding
         case done
         case failed(String)
@@ -65,6 +69,30 @@ public struct CompJob: Identifiable, Codable, Equatable, Sendable {
     public var outputFile: String?
     public var outputBytes: Int64?
     public let added: Date
+    /// Burned-in captions; nil = off.
+    public var captions: CompCaptionSettings?
+    public var words: [CompWord]?
+    /// Bring audio to −14 LUFS. Optional so queues saved by v1 still load (nil = on for video).
+    public var levelAudioSetting: Bool?
+    /// Cover frame time in source seconds; nil = a tenth of the way in.
+    public var coverTime: Double?
+    /// JPEG next to the output, once made.
+    public var coverFile: String?
+
+    /// Still moving through the queue (not done, failed or cancelled).
+    public var isActive: Bool {
+        switch state {
+        case .waiting, .transcribing, .needsReview, .encoding: true
+        case .done, .failed, .cancelled: false
+        }
+    }
+
+    public var levelAudio: Bool {
+        get { levelAudioSetting ?? !preset.isAudioOnly }
+        set { levelAudioSetting = newValue }
+    }
+    public var defaultCoverTime: Double { coverTime ?? (trimStart + outputDuration * 0.1) }
+    public var hasCaptions: Bool { captions != nil && !preset.isAudioOnly && source.hasVideo }
 
     public var preset: CompPreset { CompPreset.named(presetID) }
     public var outputDuration: Double { (trimEnd ?? source.duration) - trimStart }

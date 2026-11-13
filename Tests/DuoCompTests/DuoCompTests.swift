@@ -136,3 +136,100 @@ import CoreVideo
         #expect(hevcInfo.width == 1920 && hevcInfo.height == 1080)
     }
 }
+
+@Suite struct V2Tests {
+    func words(_ s: String, gap: Double = 0.3) -> [CompWord] {
+        s.split(separator: " ").enumerated().map { CompWord(text: String($0.element), start: Double($0.offset) * gap, end: Double($0.offset) * gap + 0.25) }
+    }
+
+    @Test func boldChunksThreeWords() {
+        let c = CompCaptionLayout.chunks(words("one two three four five six seven"), style: .bold)
+        #expect(c.map(\.words.count) == [3, 3, 1])
+        #expect(c[0].end <= c[1].start)
+    }
+
+    @Test func chunkBreaksOnSentenceAndPause() {
+        var w = words("Hello there. God is good")
+        w[4].start += 3; w[4].end += 3
+        let c = CompCaptionLayout.chunks(w, style: .classic)
+        #expect(c.map { $0.words.map(\.text).joined(separator: " ") } == ["Hello there.", "God is", "good"])
+    }
+
+    @Test func loudnessOfSine() {
+        // 1 kHz at −20 dBFS on both channels measures about −20 LUFS.
+        var samples: [Float] = []
+        for i in 0..<(48_000 * 3) {
+            let v = Float(0.1 * sin(2 * Double.pi * 1000 * Double(i) / 48_000))
+            samples.append(v); samples.append(v)
+        }
+        let m = CompLoudness.measure(interleaved: samples)
+        #expect(abs(m.lufs - -20) < 0.5)
+        #expect(abs(m.peakDB - -20) < 0.1)
+        // −14 target wants +6 dB; the −1 dB peak ceiling allows +19, so +6 it is.
+        #expect(abs(m.gainDB - 6) < 0.5)
+    }
+
+    @Test func loudnessPeakLimits() {
+        let m = CompLoudness.Measurement(lufs: -30, peakDB: -3)
+        #expect(m.gainDB == 2)
+    }
+
+    @Test func silenceGetsNoGain() {
+        #expect(CompLoudness.measure(interleaved: [Float](repeating: 0, count: 96_000 * 2)).gainDB == 0)
+    }
+
+    @Test func followIgnoresSmallMoves() {
+        let raw = (0..<20).map { CompFollow.Key(time: Double($0), position: 0.5 + ($0 % 2 == 0 ? 0.03 : -0.03)) }
+        let out = CompFollow.smooth(raw, start: 0.5)
+        #expect(out.allSatisfy { abs($0.position - 0.53) < 0.05 })
+    }
+
+    @Test func followGlidesToBigMoves() {
+        let raw = (0..<20).map { CompFollow.Key(time: Double($0), position: $0 < 5 ? 0.2 : 0.8) }
+        let out = CompFollow.smooth(raw, start: 0.2)
+        #expect(abs(out.last!.position - 0.8) < 0.02)
+        #expect(out.contains { $0.position > 0.3 && $0.position < 0.7 })   // eased, not a jump
+    }
+
+    @Test func oldQueueStillDecodes() throws {
+        let job = CompJob(name: "a", sourceFile: "b", source: CompSourceInfo(duration: 1, width: 1, height: 1, hasVideo: true, hasAudio: true, bytes: 1), preset: .vertical)
+        var dict = try JSONSerialization.jsonObject(with: JSONEncoder().encode(job)) as! [String: Any]
+        for k in ["captions", "words", "levelAudioSetting", "coverTime", "coverFile"] { dict.removeValue(forKey: k) }
+        let decoded = try JSONDecoder().decode(CompJob.self, from: JSONSerialization.data(withJSONObject: dict))
+        #expect(decoded.levelAudio)
+        #expect(!decoded.hasCaptions)
+    }
+}
+
+extension EncodeTests {
+    @Test func burnsCaptionsAndMakesCover() async throws {
+        let src = try await Self.makeClip(seconds: 3)
+        let out = FileManager.default.temporaryDirectory.appending(path: "duocomp-cap-\(UUID().uuidString).mp4")
+        let cover = FileManager.default.temporaryDirectory.appending(path: "duocomp-cover-\(UUID().uuidString).jpg")
+        defer { [src, out, cover].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let info = try await CompSourceInfo.probe(src)
+        for style in CompCaptionStyle.allCases {
+            var job = CompJob(name: "c", sourceFile: "", source: info, preset: .vertical)
+            var settings = CompCaptionSettings(); settings.style = style
+            job.captions = settings
+            job.words = [CompWord(text: "Grace", start: 0.2, end: 0.8), CompWord(text: "changes", start: 0.9, end: 1.5), CompWord(text: "everything.", start: 1.6, end: 2.4)]
+            try await CompEncoder().run(CompRequest(job: job, source: src, output: out)) { _ in }
+            let r = try await CompSourceInfo.probe(out)
+            #expect(r.width == 1080 && r.height == 1920)
+        }
+        let job = CompJob(name: "c", sourceFile: "", source: info, preset: .feed)
+        try await CompCover.make(source: src, job: job, time: 1, to: cover)
+        let size = (try cover.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        #expect(size > 1000)
+    }
+
+    @Test func followEncodesWithoutPeople() async throws {
+        let src = try await Self.makeClip(seconds: 2)
+        let out = FileManager.default.temporaryDirectory.appending(path: "duocomp-follow-\(UUID().uuidString).mp4")
+        defer { [src, out].forEach { try? FileManager.default.removeItem(at: $0) } }
+        let info = try await CompSourceInfo.probe(src)
+        let job = CompJob(name: "f", sourceFile: "", source: info, preset: .vertical, framing: .follow)
+        try await CompEncoder().run(CompRequest(job: job, source: src, output: out)) { _ in }
+        #expect(try await CompSourceInfo.probe(out).height == 1920)
+    }
+}

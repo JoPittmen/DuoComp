@@ -38,14 +38,16 @@ public struct DuoCompRoot: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showsPhotos = false
     @State private var showsFiles = false
-    /// Files picked, waiting for a preset.
+    /// Files picked, waiting for presets.
     @State private var picked: [(file: String, name: String)] = []
     @State private var showsPresets = false
-    /// Files that need the reframe/trim question, asked one at a time.
+    /// Jobs that need the reframe/trim question, asked one at a time.
     @State private var confirming: [CompPending] = []
     @State private var confirmCount = 0
     @State private var importing = false
     @State private var importError: String?
+    @State private var reviewing: CompJob?
+    @State private var choosingCover: CompJob?
 
     public var body: some View {
         NavigationStack {
@@ -69,14 +71,13 @@ public struct DuoCompRoot: View {
             if case .success(let urls) = result { importFiles(urls) }
         }
         .sheet(isPresented: $showsPresets, onDismiss: discardPicked) {
-            CompPresetPicker(count: picked.count, selected: queue.lastPresetID) { preset in
-                queue.lastPresetID = preset.id
+            CompPresetPicker(count: picked.count) { options in
                 let files = picked
                 picked = []
                 showsPresets = false
-                Task { await prepare(files, with: preset) }
+                Task { await prepare(files, with: options) }
             }
-            .presentationDetents([.medium, .large])
+            .presentationDetents([.large])
         }
         .sheet(item: Binding(get: { confirming.first }, set: { if $0 == nil, !confirming.isEmpty { skipCurrent() } })) { pending in
             CompConfirmSheet(pending: pending, index: confirmCount - confirming.count + 1, count: confirmCount,
@@ -88,6 +89,13 @@ public struct DuoCompRoot: View {
                 .id(pending.id)
                 .presentationDetents([.large])
                 .interactiveDismissDisabled()
+        }
+        .sheet(item: $reviewing) { job in
+            CompReviewSheet(job: job) { words in queue.finishReview(job.id, words: words) }
+        }
+        .sheet(item: $choosingCover) { job in
+            CompCoverSheet(job: job) { time in Task { await queue.setCover(job.id, time: time) } }
+                .presentationDetents([.large])
         }
         .alert("Couldn't Add File", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("OK") {}
@@ -119,25 +127,21 @@ public struct DuoCompRoot: View {
             }
         }
         ToolbarItem(placement: .primaryAction) {
-            addMenu
+            Menu {
+                Button("Photos", systemImage: "photo.on.rectangle") { showsPhotos = true }
+                Button("Files", systemImage: "folder") { showsFiles = true }
+            } label: {
+                Label("Add", systemImage: "plus")
+            }
         }
         ToolbarItem(placement: .secondaryAction) {
             Menu {
-                Toggle("Save Videos to Photos", systemImage: "photo.on.rectangle", isOn: $queue.saveToPhotos)
+                Toggle("Save to Photos", systemImage: "photo.on.rectangle", isOn: $queue.saveToPhotos)
                 Button("Clear Finished", systemImage: "checkmark.circle", action: queue.clearFinished)
                     .disabled(!queue.hasFinished)
             } label: {
                 Label("Options", systemImage: "ellipsis")
             }
-        }
-    }
-
-    private var addMenu: some View {
-        Menu {
-            Button("Photos", systemImage: "photo.on.rectangle") { showsPhotos = true }
-            Button("Files", systemImage: "folder") { showsFiles = true }
-        } label: {
-            Label("Add", systemImage: "plus")
         }
     }
 
@@ -164,7 +168,9 @@ public struct DuoCompRoot: View {
                 }
             }
             ForEach(queue.jobs.reversed()) { job in
-                CompJobRow(job: job, queue: queue)
+                CompJobRow(job: job, queue: queue,
+                           onReview: { reviewing = job },
+                           onCover: { choosingCover = job })
             }
         }
         .animation(.default, value: queue.jobs.map(\.id))
@@ -208,9 +214,9 @@ public struct DuoCompRoot: View {
         showsPresets = true
     }
 
-    /// Probes each file; files that already fit go straight to the queue,
-    /// the rest wait for the reframe/trim question.
-    private func prepare(_ files: [(file: String, name: String)], with preset: CompPreset) async {
+    /// One job per file per preset. Jobs that already fit go straight to the
+    /// queue; the rest wait for the reframe/trim question.
+    private func prepare(_ files: [(file: String, name: String)], with options: CompBatchOptions) async {
         importing = true
         var asks: [CompPending] = []
         for f in files {
@@ -218,12 +224,16 @@ public struct DuoCompRoot: View {
             do {
                 let info = try await CompSourceInfo.probe(url)
                 guard info.hasVideo || info.hasAudio else { throw CompError.noTracks }
-                let job = CompJob(name: f.name, sourceFile: f.file, source: info, preset: preset)
-                let advice = CompAdvice(source: info, preset: preset)
-                if advice.isWorthAsking {
-                    asks.append(CompPending(job: job, advice: advice))
-                } else {
-                    queue.add(job)
+                for preset in options.presets {
+                    var job = CompJob(name: f.name, sourceFile: f.file, source: info, preset: preset)
+                    job.captions = preset.isAudioOnly ? nil : options.captions
+                    job.levelAudio = options.levelAudio
+                    let advice = CompAdvice(source: info, preset: preset)
+                    if advice.isWorthAsking {
+                        asks.append(CompPending(job: job, advice: advice))
+                    } else {
+                        queue.add(job)
+                    }
                 }
             } catch {
                 try? FileManager.default.removeItem(at: url)
@@ -237,8 +247,11 @@ public struct DuoCompRoot: View {
 
     private func skipCurrent() {
         guard let first = confirming.first else { return }
-        try? FileManager.default.removeItem(at: CompStore.sources.appending(path: first.job.sourceFile))
         confirming.removeFirst()
+        // Keep the copy if another version of the same file still uses it.
+        let inUse = queue.jobs.contains { $0.sourceFile == first.job.sourceFile }
+            || confirming.contains { $0.job.sourceFile == first.job.sourceFile }
+        if !inUse { try? FileManager.default.removeItem(at: CompStore.sources.appending(path: first.job.sourceFile)) }
     }
 
     private func discardPicked() {
@@ -247,59 +260,19 @@ public struct DuoCompRoot: View {
     }
 }
 
-// MARK: - Preset picker
-
-struct CompPresetPicker: View {
-    let count: Int
-    let selected: String
-    let onChoose: (CompPreset) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List(CompPreset.all) { preset in
-                Button { onChoose(preset) } label: {
-                    HStack(spacing: 14) {
-                        Image(systemName: preset.symbol)
-                            .font(.title3)
-                            .foregroundStyle(.tint)
-                            .frame(width: 32)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(preset.title).foregroundStyle(.primary)
-                            Text(preset.detail).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        if preset.id == selected {
-                            Image(systemName: "checkmark").foregroundStyle(.tint)
-                                .accessibilityLabel("Last used")
-                        }
-                    }
-                    .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-            }
-            .navigationTitle(count > 1 ? "Compress \(count) Files For" : "Compress For")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel", role: .cancel) { dismiss() }
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Row
 
 struct CompJobRow: View {
     let job: CompJob
     let queue: CompQueue
+    let onReview: () -> Void
+    let onCover: () -> Void
+
+    private var hasPicture: Bool { job.source.hasVideo && !job.preset.isAudioOnly }
 
     var body: some View {
         HStack(spacing: 12) {
-            CompThumbnailView(url: queue.sourceURL(job), isAudio: !job.source.hasVideo || job.preset.isAudioOnly)
+            CompThumbnailView(url: queue.sourceURL(job), isAudio: !hasPicture)
                 .frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 4) {
                 Text(job.name).font(.headline).lineLimit(1)
@@ -311,19 +284,29 @@ struct CompJobRow: View {
         }
         .padding(.vertical, 4)
         .swipeActions {
-            if job.state == .encoding || job.state == .waiting {
+            if job.isActive {
                 Button("Cancel", systemImage: "xmark") { queue.cancel(job.id) }.tint(.orange)
             } else {
                 Button("Remove", systemImage: "trash", role: .destructive) { queue.remove(job.id) }
             }
         }
         .contextMenu {
-            if let url = queue.outputURL(job), job.state == .done {
-                ShareLink(item: url)
+            if job.state == .done, let url = queue.outputURL(job) {
+                ShareLink("Share Video", item: url)
+                if let cover = queue.coverURL(job) { ShareLink("Share Cover", item: cover) }
             }
-            if case .failed = job.state { Button("Try Again", systemImage: "arrow.clockwise") { queue.retry(job.id) } }
-            if job.state == .cancelled { Button("Try Again", systemImage: "arrow.clockwise") { queue.retry(job.id) } }
-            if job.state == .encoding || job.state == .waiting {
+            if hasPicture && job.state != .encoding {
+                Button("Choose Cover…", systemImage: "photo", action: onCover)
+            }
+            if job.state == .needsReview {
+                Button("Check Captions…", systemImage: "captions.bubble", action: onReview)
+            }
+            switch job.state {
+            case .failed, .cancelled:
+                Button("Try Again", systemImage: "arrow.clockwise") { queue.retry(job.id) }
+            default: EmptyView()
+            }
+            if job.isActive {
                 Button("Cancel", systemImage: "xmark") { queue.cancel(job.id) }
             } else {
                 Button("Remove", systemImage: "trash", role: .destructive) { queue.remove(job.id) }
@@ -334,7 +317,11 @@ struct CompJobRow: View {
     private var subtitle: String {
         var parts = [job.preset.title]
         if job.trimEnd != nil || job.trimStart > 0 { parts.append(CompFormat.duration(job.outputDuration)) }
-        if job.framing == .fit, job.preset.aspect != nil { parts.append("Fit") }
+        if job.preset.aspect != nil {
+            if job.framing == .fit { parts.append("Fit") }
+            if job.framing == .follow { parts.append("Follow") }
+        }
+        if job.hasCaptions { parts.append("Captions") }
         return parts.joined(separator: " · ")
     }
 
@@ -343,6 +330,15 @@ struct CompJobRow: View {
         case .waiting:
             Text("Waiting · about \(CompFormat.bytes(job.estimatedBytes))")
                 .font(.footnote).foregroundStyle(.secondary)
+        case .transcribing:
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text("Finding words…")
+            }
+            .font(.footnote).foregroundStyle(.secondary)
+        case .needsReview:
+            Label("Captions ready to check", systemImage: "captions.bubble")
+                .font(.footnote).foregroundStyle(.tint)
         case .encoding:
             ProgressView(value: job.progress) {
                 EmptyView()
@@ -378,13 +374,17 @@ struct CompJobRow: View {
                 .buttonStyle(.borderless)
                 .frame(minWidth: 44, minHeight: 44)
             }
+        case .needsReview:
+            Button("Check", action: onReview)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
         case .failed, .cancelled:
             Button { queue.retry(job.id) } label: {
                 Label("Try Again", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
             .frame(minWidth: 44, minHeight: 44)
-        case .encoding, .waiting:
+        case .encoding, .waiting, .transcribing:
             Button { queue.cancel(job.id) } label: {
                 Label("Cancel", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
                     .foregroundStyle(.secondary)

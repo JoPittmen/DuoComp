@@ -60,6 +60,58 @@ public enum CompFraming: String, Codable, Sendable, CaseIterable {
     case fill
     /// Scale to fit inside it, with black bars.
     case fit
+    /// Crop to fill, moving the crop to keep the speaker in frame.
+    case follow
+}
+
+public enum CompCaptionStyle: String, Codable, Sendable, CaseIterable, Identifiable {
+    case classic, bold, highlight, minimal
+    public var id: String { rawValue }
+    public var title: String {
+        switch self {
+        case .classic: "Classic"
+        case .bold: "Bold"
+        case .highlight: "Highlight"
+        case .minimal: "Minimal"
+        }
+    }
+    /// Most words shown at once.
+    var maxWords: Int {
+        switch self {
+        case .classic: 12
+        case .bold: 3
+        case .highlight: 5
+        case .minimal: 10
+        }
+    }
+}
+
+public enum CompCaptionPlacement: String, Codable, Sendable, CaseIterable, Identifiable {
+    case top, middle, bottom
+    public var id: String { rawValue }
+    public var title: String { rawValue.capitalized }
+}
+
+public struct CompCaptionSettings: Codable, Equatable, Sendable {
+    public var style: CompCaptionStyle = .highlight
+    public var placement: CompCaptionPlacement = .bottom
+    /// Accent as RGB 0…1 (Highlight's spoken word, Classic's band edge).
+    public var accent: [Double] = [1.0, 0.84, 0.04]
+    public init() {}
+
+    public static let accents: [(name: String, rgb: [Double])] = [
+        ("Yellow", [1.0, 0.84, 0.04]), ("Green", [0.2, 0.84, 0.29]), ("Blue", [0.25, 0.6, 1.0]),
+        ("Pink", [1.0, 0.33, 0.6]), ("White", [1, 1, 1]),
+    ]
+}
+
+/// One spoken word, in source-file seconds.
+public struct CompWord: Codable, Equatable, Sendable, Identifiable {
+    public var id = UUID()
+    public var text: String
+    public var start: Double
+    public var end: Double
+    public init(text: String, start: Double, end: Double) { self.text = text; self.start = start; self.end = end }
 }
 
 public enum CompMath {

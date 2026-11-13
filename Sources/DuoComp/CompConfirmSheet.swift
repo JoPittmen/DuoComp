@@ -65,6 +65,7 @@ struct CompConfirmSheet: View {
                 .listRowBackground(Color.clear)
             Picker("Reframe", selection: $pending.job.framing) {
                 Text("Crop to Fill").tag(CompFraming.fill)
+                Text("Follow Speaker").tag(CompFraming.follow)
                 Text("Fit with Bars").tag(CompFraming.fit)
             }
             .pickerStyle(.segmented)
@@ -80,9 +81,11 @@ struct CompConfirmSheet: View {
         let from = pending.advice.sourceAspect.map(CompFormat.aspect) ?? "This video"
         let to = pending.advice.targetAspect.map(CompFormat.aspect) ?? ""
         let shape = "This video is \(from). \(preset.title) is \(to)."
-        return job.framing == .fill
-            ? "\(shape) Drag the picture to choose what stays in the frame."
-            : "\(shape) The whole picture is kept, with black bars."
+        switch job.framing {
+        case .fill: return "\(shape) Drag the picture to choose what stays in the frame."
+        case .follow: return "\(shape) The frame moves to keep the speaker in view. Drag to set where it starts."
+        case .fit: return "\(shape) The whole picture is kept, with black bars."
+        }
     }
 
     // MARK: Trim
@@ -210,7 +213,7 @@ struct CompReframePreview: View {
         .frame(width: box.width, height: box.height)
         .clipShape(.rect(cornerRadius: 10))
         .overlay {
-            if framing == .fill {
+            if framing != .fit {
                 RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(dragging ? 0.9 : 0.35), lineWidth: 1)
                 thirdsGrid.opacity(dragging ? 1 : 0)
             }
@@ -218,7 +221,7 @@ struct CompReframePreview: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: dragging)
         .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 1), value: framing)
         .padding(.vertical, 8)
-        .gesture(framing == .fill ? panGesture : nil)
+        .gesture(framing != .fit ? panGesture : nil)
         .accessibilityElement()
         .accessibilityLabel("Frame position")
         .accessibilityValue(positionDescription)
@@ -236,7 +239,7 @@ struct CompReframePreview: View {
         if let image {
             let img = Image(decorative: image, scale: 1).resizable()
             switch framing {
-            case .fill:
+            case .fill, .follow:
                 let o = liveOffset ?? offset(for: position)
                 img.frame(width: filled.width, height: filled.height)
                     .offset(x: horizontal ? o : 0, y: horizontal ? 0 : o)

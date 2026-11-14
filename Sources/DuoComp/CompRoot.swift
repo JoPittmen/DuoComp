@@ -158,6 +158,11 @@ private struct CompSettingsSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Queue") {
+                    Toggle("Save to Photos", systemImage: "photo.on.rectangle", isOn: $queue.saveToPhotos)
+                    Button("Clear Finished", systemImage: "checkmark.circle") { queue.clearFinished() }
+                        .disabled(!queue.hasFinished)
+                }
                 if onSwitchApp != nil || !otherApps.isEmpty {
                     Section("Switch App") {
                         if let onSwitchApp {
@@ -168,18 +173,15 @@ private struct CompSettingsSheet: View {
                         }
                     }
                 }
-                Section("Queue") {
-                    Toggle("Save to Photos", systemImage: "photo.on.rectangle", isOn: $queue.saveToPhotos)
-                    Button("Clear Finished", systemImage: "checkmark.circle") { queue.clearFinished() }
-                        .disabled(!queue.hasFinished)
-                }
+
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 }
 

@@ -48,6 +48,7 @@ public struct DuoCompRoot: View {
     @State private var importError: String?
     @State private var reviewing: CompJob?
     @State private var choosingCover: CompJob?
+    @State private var showingSettings = false
 
     public var body: some View {
         NavigationStack {
@@ -107,13 +108,17 @@ public struct DuoCompRoot: View {
         } message: {
             Text(queue.photosMessage ?? "")
         }
+        .sheet(isPresented: $showingSettings) { CompSettingsSheet(onSwitchApp: onSwitchApp, otherApps: otherApps, queue: queue) }
     }
 
     // MARK: Toolbar
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         if onSwitchApp != nil || !otherApps.isEmpty {
-            ToolbarItem(placement: .navigation) {
+            // The suite's settings gear: leading in the bar, so a folded Duo's
+            // side rail holds it like every other Duo app's gear. Tap opens
+            // Settings; press and hold lists the other Duo apps.
+            ToolbarItem(placement: .topBarLeading) {
                 Menu {
                     if let onSwitchApp {
                         Button("DuoControl", systemImage: "slider.horizontal.3", action: onSwitchApp)
@@ -122,8 +127,12 @@ public struct DuoCompRoot: View {
                         Button(app.title, systemImage: app.symbol, action: app.action)
                     }
                 } label: {
-                    Label("Duo Apps", systemImage: "square.grid.2x2")
+                    Label("Settings", systemImage: "gearshape")
+                        .frame(minWidth: 44, minHeight: 44)
+                } primaryAction: {
+                    showingSettings = true
                 }
+                .accessibilityHint("Press and hold to switch apps")
             }
         }
         ToolbarItem(placement: .primaryAction) {
@@ -134,18 +143,45 @@ public struct DuoCompRoot: View {
                 Label("Add", systemImage: "plus")
             }
         }
-        ToolbarItem(placement: .secondaryAction) {
-            Menu {
-                Toggle("Save to Photos", systemImage: "photo.on.rectangle", isOn: $queue.saveToPhotos)
-                Button("Clear Finished", systemImage: "checkmark.circle", action: queue.clearFinished)
-                    .disabled(!queue.hasFinished)
-            } label: {
-                Label("Options", systemImage: "ellipsis")
-            }
-        }
     }
 
     // MARK: Content
+
+/// The gear's Settings sheet: app switching (same as the gear's press-and-hold
+/// menu) and the queue options that used to live in the Options menu.
+private struct CompSettingsSheet: View {
+    let onSwitchApp: (@MainActor () -> Void)?
+    let otherApps: [CompHostApp]
+    @Bindable var queue: CompQueue
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if onSwitchApp != nil || !otherApps.isEmpty {
+                    Section("Switch App") {
+                        if let onSwitchApp {
+                            Button("DuoControl", systemImage: "slider.horizontal.3") { dismiss(); onSwitchApp() }
+                        }
+                        ForEach(otherApps) { app in
+                            Button(app.title, systemImage: app.symbol) { dismiss(); app.action() }
+                        }
+                    }
+                }
+                Section("Queue") {
+                    Toggle("Save to Photos", systemImage: "photo.on.rectangle", isOn: $queue.saveToPhotos)
+                    Button("Clear Finished", systemImage: "checkmark.circle") { queue.clearFinished() }
+                        .disabled(!queue.hasFinished)
+                }
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
 
     private var emptyState: some View {
         ContentUnavailableView {

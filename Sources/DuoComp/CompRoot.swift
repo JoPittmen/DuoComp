@@ -267,6 +267,7 @@ private struct CompSettingsSheet: View {
                     var job = CompJob(name: f.name, sourceFile: f.file, source: info, preset: preset)
                     job.captions = preset.isAudioOnly ? nil : options.captions
                     job.levelAudio = options.levelAudio
+                    if preset.isCustom { job.targetRatio = options.compressorRatio; job.efficient = options.compressorEfficient }
                     let advice = CompAdvice(source: info, preset: preset)
                     if advice.isWorthAsking {
                         asks.append(CompPending(job: job, advice: advice))

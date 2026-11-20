@@ -54,6 +54,13 @@ public final class CompQueue {
     public var levelAudio: Bool {
         didSet { UserDefaults.standard.set(levelAudio, forKey: "duocomp.levelAudio") }
     }
+    /// Compressor preset defaults: share of the original size, and HEVC.
+    public var compressorRatio: Double {
+        didSet { UserDefaults.standard.set(compressorRatio, forKey: "duocomp.compressorRatio") }
+    }
+    public var compressorEfficient: Bool {
+        didSet { UserDefaults.standard.set(compressorEfficient, forKey: "duocomp.compressorEfficient") }
+    }
     /// Set when saving to Photos failed (for example, access was turned off).
     public var photosMessage: String?
 
@@ -72,6 +79,8 @@ public final class CompQueue {
         captionsOn = d.bool(forKey: "duocomp.captionsOn")
         captionSettings = d.data(forKey: "duocomp.captionSettings").flatMap { try? JSONDecoder().decode(CompCaptionSettings.self, from: $0) } ?? CompCaptionSettings()
         levelAudio = d.object(forKey: "duocomp.levelAudio") as? Bool ?? true
+        compressorRatio = d.object(forKey: "duocomp.compressorRatio") as? Double ?? 0.8
+        compressorEfficient = d.bool(forKey: "duocomp.compressorEfficient")
         if let data = try? Data(contentsOf: CompStore.queueFile),
            let saved = try? JSONDecoder().decode([CompJob].self, from: data) {
             // An encode cut off when the app was closed starts over.

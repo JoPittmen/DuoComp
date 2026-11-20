@@ -5,6 +5,8 @@ public struct CompBatchOptions: Sendable {
     public var presets: [CompPreset]
     public var captions: CompCaptionSettings?
     public var levelAudio: Bool
+    public var compressorRatio = 0.8
+    public var compressorEfficient = false
 }
 
 struct CompPresetPicker: View {
@@ -38,6 +40,24 @@ struct CompPresetPicker: View {
                     Text("Choose one or more. Each makes its own file.")
                 }
 
+                if selected.contains(CompPreset.custom.id) {
+                    Section {
+                        Picker("Quality", selection: $queue.compressorEfficient) {
+                            Text("Standard").tag(false)
+                            Text("Efficient").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        VStack(alignment: .leading) {
+                            Text("Compression Ratio (\(Int((queue.compressorRatio * 100).rounded()))%)")
+                            Slider(value: $queue.compressorRatio, in: 0.1...1) { Text("Compression Ratio") }
+                        }
+                        Button("Reset", role: .cancel) { queue.compressorRatio = 0.8; queue.compressorEfficient = false }
+                    } header: {
+                        Text("Compressor")
+                    } footer: {
+                        Text("Each file's output aims for this share of its own size. Efficient (HEVC) looks better at the same size but some older players can't open it. You'll see each file's size estimate next.")
+                    }
+                }
                 if anyVideo {
                     CompVideoOptionSections(queue: queue)
                 }
@@ -58,7 +78,9 @@ struct CompPresetPicker: View {
                         queue.lastPresetIDs = chosen.map(\.id)
                         onChoose(CompBatchOptions(presets: chosen,
                                                   captions: queue.captionsOn ? queue.captionSettings : nil,
-                                                  levelAudio: queue.levelAudio))
+                                                  levelAudio: queue.levelAudio,
+                                                  compressorRatio: queue.compressorRatio,
+                                                  compressorEfficient: queue.compressorEfficient))
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(chosen.isEmpty)

@@ -39,12 +39,7 @@ struct CompPresetPicker: View {
                 }
 
                 if anyVideo {
-                    captionsSection
-                    Section {
-                        Toggle("Level Audio", isOn: $queue.levelAudio)
-                    } footer: {
-                        Text("Brings the sound to the loudness Instagram, TikTok and YouTube expect, without clipping.")
-                    }
+                    CompVideoOptionSections(queue: queue)
                 }
             }
             .formStyle(.grouped)
@@ -98,8 +93,21 @@ struct CompPresetPicker: View {
         .sensoryFeedback(.selection, trigger: on)
         .accessibilityAddTraits(on ? .isSelected : [])
     }
+}
 
-    // MARK: Captions
+/// Captions and Level Audio: shown when adding files and in Settings, so the
+/// defaults can be set without adding a video first.
+struct CompVideoOptionSections: View {
+    @Bindable var queue: CompQueue
+
+    var body: some View {
+        captionsSection
+        Section {
+            Toggle("Level Audio", isOn: $queue.levelAudio)
+        } footer: {
+            Text("Brings the sound to the loudness Instagram, TikTok and YouTube expect, without clipping.")
+        }
+    }
 
     private var captionsSection: some View {
         Section {

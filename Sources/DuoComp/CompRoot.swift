@@ -163,6 +163,7 @@ private struct CompSettingsSheet: View {
                     Button("Clear Finished", systemImage: "checkmark.circle") { queue.clearFinished() }
                         .disabled(!queue.hasFinished)
                 }
+                CompVideoOptionSections(queue: queue)
                 if onSwitchApp != nil || !otherApps.isEmpty {
                     Section("Switch App") {
                         if let onSwitchApp {

@@ -241,11 +241,7 @@ public final class CompQueue {
         do {
             try await CompCover.make(source: sourceURL(job), job: job, time: job.defaultCoverTime, to: url)
             update(job.id) { $0.coverFile = name }
-            if saveToPhotos {
-                try? await PHPhotoLibrary.shared().performChanges {
-                    PHAssetCreationRequest.forAsset().addResource(with: .photo, fileURL: url, options: nil)
-                }
-            }
+            // The cover stays in the app (Share Cover); it isn't added to Photos beside the video.
         } catch {
             // The video is fine without a cover; leave it unset.
         }

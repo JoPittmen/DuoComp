@@ -28,6 +28,7 @@ struct CompConfirmSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if pending.advice.needsCompressor { compressorSection }
                 if pending.advice.needsReframe { reframeSection }
                 if pending.advice.needsTrim { trimSection }
             }
@@ -50,6 +51,50 @@ struct CompConfirmSheet: View {
             thumbnail = await CompThumbnails.image(for: CompStore.sources.appending(path: job.sourceFile))
         }
         .onAppear { applyTrimChoice(.first) }
+    }
+
+    // MARK: Compressor
+
+    private func mbps(_ bitsPerSecond: Double) -> String { String(format: "%.2f Mbps", bitsPerSecond / 1_000_000) }
+
+    private var compressorSection: some View {
+        let ratio = Binding<Double>(get: { pending.job.ratio }, set: { pending.job.targetRatio = $0 })
+        let quality = Binding<Bool>(get: { pending.job.efficient ?? false }, set: { pending.job.efficient = $0 })
+        let target = job.estimatedBytes
+        let percent = job.source.bytes > 0 ? Int((Double(target) / Double(job.source.bytes) * 100).rounded()) : Int(job.ratio * 100)
+        return Group {
+            Section {
+                LabeledContent("Original Size", value: CompFormat.bytes(job.source.bytes))
+                LabeledContent("Bit Rate", value: mbps(job.sourceBitrate))
+                LabeledContent("Target Size") {
+                    Text("\(CompFormat.bytes(target)) (\(percent)%)").foregroundStyle(.tint).fontWeight(.semibold)
+                }
+                LabeledContent("Bit Rate", value: mbps(Double(job.customVideoBitrate + preset.audioBitrate)))
+            } header: {
+                Text("Compressor")
+            }
+            Section {
+                Picker("Quality", selection: quality) {
+                    Text("Standard").tag(false)
+                    Text("Efficient").tag(true)
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Quality")
+            } footer: {
+                Text(quality.wrappedValue ? "Efficient (HEVC): better quality at the same size. Some older players can't open it."
+                                          : "Standard (H.264): plays everywhere.")
+            }
+            Section {
+                Slider(value: ratio, in: 0.1...1) { Text("Compression Ratio") }
+                    .accessibilityValue("\(percent) percent of the original size")
+                Button("Reset", role: .cancel) { pending.job.targetRatio = nil; pending.job.efficient = nil }
+            } header: {
+                Text("Compression Ratio (\(percent)%)")
+            } footer: {
+                Text("Lower is smaller. The size is an estimate; the picture is the same frame as the original.")
+            }
+        }
     }
 
     // MARK: Reframe

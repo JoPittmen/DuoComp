@@ -76,6 +76,9 @@ public struct CompJob: Identifiable, Codable, Equatable, Sendable {
     public var levelAudioSetting: Bool?
     /// Cover frame time in source seconds; nil = a tenth of the way in.
     public var coverTime: Double?
+    /// Compressor preset: output size as a share of the original (nil = 0.8), and HEVC ("Efficient") or H.264.
+    public var targetRatio: Double?
+    public var efficient: Bool?
     /// JPEG next to the output, once made.
     public var coverFile: String?
 
@@ -105,12 +108,20 @@ public struct CompJob: Identifiable, Codable, Equatable, Sendable {
         state = .waiting; progress = 0; added = Date()
     }
 
+    public var ratio: Double { min(max(targetRatio ?? 0.8, 0.05), 1) }
+    /// The file's overall bits per second.
+    public var sourceBitrate: Double { source.duration > 0 ? Double(source.bytes) * 8 / source.duration : 0 }
+    /// Compressor: the video rate that lands on the chosen share of the original size.
+    public var customVideoBitrate: Int { max(300_000, Int(sourceBitrate * ratio) - preset.audioBitrate) }
+    public var videoBitrate: Int? { preset.isCustom && source.hasVideo ? customVideoBitrate : preset.videoBitrate }
+    public var codec: CompCodec { preset.isCustom && (efficient ?? false) ? .hevc : preset.codec }
+
     /// Rough output size, for the row before encoding finishes.
     public var estimatedBytes: Int64 {
         let p = preset
         let video: Double
         if p.isAudioOnly { video = 0 }
-        else if let rate = p.videoBitrate { video = Double(rate) }
+        else if let rate = videoBitrate { video = Double(rate) }
         else { video = source.duration > 0 ? Double(source.bytes) * 8 / source.duration * 0.5 : 0 }
         return Int64((video + Double(p.audioBitrate)) / 8 * outputDuration)
     }

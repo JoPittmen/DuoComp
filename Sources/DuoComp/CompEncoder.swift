@@ -20,6 +20,8 @@ public struct CompRequest: Sendable {
     public var source: URL
     public var output: URL
     public var preset: CompPreset
+    public var videoBitrate: Int?
+    public var codec: CompCodec
     public var framing: CompFraming
     public var cropPosition: Double
     public var trimStart: Double
@@ -35,6 +37,7 @@ public struct CompRequest: Sendable {
 
     public init(job: CompJob, source: URL, output: URL) {
         self.source = source; self.output = output; preset = job.preset
+        videoBitrate = job.videoBitrate; codec = job.codec
         framing = job.framing; cropPosition = job.cropPosition; trimStart = job.trimStart; trimEnd = job.trimEnd
         captions = job.hasCaptions ? job.captions : nil
         words = job.words ?? []
@@ -186,15 +189,15 @@ public final class CompEncoder: @unchecked Sendable {
             out.videoComposition = composition
             out.alwaysCopiesSampleData = false
 
-            let bitrate = req.preset.videoBitrate ?? max(1_500_000, Int(Double(dataRate) * 0.5))
+            let bitrate = req.videoBitrate ?? max(1_500_000, Int(Double(dataRate) * 0.5))
             var compression: [String: Any] = [
                 AVVideoAverageBitRateKey: bitrate,
                 AVVideoExpectedSourceFrameRateKey: outFPS,
                 AVVideoMaxKeyFrameIntervalKey: Int(outFPS * 2),
             ]
-            if req.preset.codec == .h264 { compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel }
+            if req.codec == .h264 { compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel }
             let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
-                AVVideoCodecKey: req.preset.codec == .hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
+                AVVideoCodecKey: req.codec == .hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
                 AVVideoWidthKey: Int(render.width),
                 AVVideoHeightKey: Int(render.height),
                 AVVideoCompressionPropertiesKey: compression,

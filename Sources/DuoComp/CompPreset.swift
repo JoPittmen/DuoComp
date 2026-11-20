@@ -23,6 +23,7 @@ public struct CompPreset: Identifiable, Hashable, Codable, Sendable {
     public let maxDuration: Double?
 
     public var isAudioOnly: Bool { codec == .aac }
+    public var isCustom: Bool { id == "custom" }
     public var aspect: Double? {
         guard let width, let height else { return nil }
         return Double(width) / Double(height)
@@ -47,11 +48,14 @@ public struct CompPreset: Identifiable, Hashable, Codable, Sendable {
     public static let smaller = CompPreset(
         id: "smaller", title: "Smaller File", detail: "Same frame · HEVC · about half the size", symbol: "arrow.down.right.and.arrow.up.left",
         width: nil, height: nil, videoBitrate: nil, audioBitrate: 128_000, maxFrameRate: 60, codec: .hevc, maxDuration: nil)
+    public static let custom = CompPreset(
+        id: "custom", title: "Compressor", detail: "Same frame · pick the size and quality", symbol: "slider.horizontal.3",
+        width: nil, height: nil, videoBitrate: nil, audioBitrate: 128_000, maxFrameRate: 60, codec: .h264, maxDuration: nil)
     public static let audio = CompPreset(
         id: "audio", title: "Audio Only", detail: "AAC · 192 kbps · .m4a", symbol: "waveform",
         width: nil, height: nil, videoBitrate: nil, audioBitrate: 192_000, maxFrameRate: 0, codec: .aac, maxDuration: nil)
 
-    public static let all: [CompPreset] = [vertical, feed, square, youTube, x, smaller, audio]
+    public static let all: [CompPreset] = [vertical, feed, square, youTube, x, smaller, custom, audio]
     public static func named(_ id: String) -> CompPreset { all.first { $0.id == id } ?? vertical }
 }
 
@@ -153,16 +157,19 @@ public struct CompAdvice: Equatable, Sendable {
         return abs(s / t - 1) > 0.04
     }
     /// Longer than the platform allows (with a second of slack).
+    /// The Compressor preset: size and quality are the question.
+    public var needsCompressor = false
     public var needsTrim: Bool {
         guard let maxDuration else { return false }
         return duration > maxDuration + 1
     }
-    public var isWorthAsking: Bool { needsReframe || needsTrim }
+    public var isWorthAsking: Bool { needsReframe || needsTrim || needsCompressor }
 
     public init(source: CompSourceInfo, preset: CompPreset) {
         sourceAspect = source.hasVideo && !preset.isAudioOnly ? source.aspect : nil
         targetAspect = preset.aspect
         duration = source.duration
+        needsCompressor = preset.isCustom && source.hasVideo
         maxDuration = preset.isAudioOnly ? nil : preset.maxDuration
     }
 }
